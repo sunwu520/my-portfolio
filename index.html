@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>Portfolio — 作品集</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -22,6 +25,7 @@
 <body>
 <div id="root"></div>
 <script>window.__PORTFOLIO_DATA__ = JSON.parse("{\"content\":{\"project.casual-game-level.coverMode\":\"gradient\",\"project.cyberpunk-city.coverMode\":\"gradient\",\"about.targetCity\":\"求职 地· 不限\",\"project.ancient-chinese.tag.0\":\"UE5\",\"project.ancient-chinese.tag.3\":\"Niagara粒子特效\",\"project.ancient-chinese.tag.1\":\"PCG\",\"project.cyberpunk-city.tag.1\":\"灯光材质编写\",\"project.medieval-fantasy.tag.1\":\"EmberGen\",\"project.medieval-fantasy.tag.2\":\"Niagara粒子特效\",\"project.casual-game-level.tag.0\":\"UE5\",\"project.casual-game-level.tag.1\":\"Gaea地形\",\"project.ancient-chinese.description\":\"使用 UE5 地形编辑模块与植被系统构建的古风意境场景。技术上运用地形、植被分布、PCG与大气光照系统，搭配中式建筑、山水地形和粒子特效，实现高品质自然场景表现。\",\"project.cyberpunk-city.description\":\"基于 UE5 搭建的赛博朋克风格城市场景，通过对材质的编写实现了贴花渐变与位移的效果，成功模拟了霓虹灯光，搭配上雾气和灯光特效，构建出夜之城的一角。\",\"project.medieval-fantasy.description\":\"使用 UE5的海洋插件成功模拟了海洋的物理系统，在通过在EmberGen软件搭建火炮和着火特效并结合UE5自带的Niagara特效系统搭建了火炮开火和起火的特效，实现了一个海盗船相遇开火交战的镜头。\",\"project.casual-game-level.description\":\"利用Gera软件实时生成地形图，结合UE5一起搭建了火山喷发的一个场景。\"},\"customProjects\":[],\"projectOrder\":[\"ancient-chinese\",\"cyberpunk-city\",\"medieval-fantasy\",\"casual-game-level\"],\"mediaIds\":[\"cyberpunk-city\",\"medieval-fantasy\",\"ancient-chinese\",\"casual-game-level\"],\"previewIds\":[\"cyberpunk-city\",\"medieval-fantasy\",\"ancient-chinese\",\"casual-game-level\"]}");</script>
+<script>window.__DEPLOY_CONFIG__ = {"githubOwner":"sunwu520","githubRepo":"my-portfolio","buildTs":1779414778031};</script>
 <script type="text/babel">
 const CYAN = '#00d4ff';
 const CYAN_DIM = '#00d4ff66';
@@ -51,18 +55,20 @@ function getEmbeddedData() {
   };
 }
 
-/* ═══ Async data loader (loads from assets/ files) ═══ */
+/* ═══ Async data loader (loads from assets/ files + GitHub raw fallback) ═══ */
 async function loadPortfolioData() {
   const embedded = getEmbeddedData();
   if (!embedded) return { content:{}, customProjects:[], projectOrder:{}, mediaData:{}, previewData:{} };
 
   const mediaData = {};
   const previewData = {};
+  const cfg = window.__DEPLOY_CONFIG__ || {};
+  const cacheBust = '?_t=' + (cfg.buildTs || Date.now());
 
-  // Load media files in parallel
+  // Load media files in parallel from local assets (with cache-busting)
   const mediaPromises = (embedded.mediaIds || []).map(async (pid) => {
     try {
-      const res = await fetch('assets/media-' + pid + '.json');
+      const res = await fetch('assets/media-' + pid + '.json' + cacheBust);
       if (res.ok) {
         const text = await res.text();
         mediaData['project-edit-' + pid] = text;
@@ -72,7 +78,7 @@ async function loadPortfolioData() {
 
   const previewPromises = (embedded.previewIds || []).map(async (pid) => {
     try {
-      const res = await fetch('assets/preview-' + pid + '.txt');
+      const res = await fetch('assets/preview-' + pid + '.txt' + cacheBust);
       if (res.ok) {
         previewData[pid] = await res.text();
       }
@@ -80,6 +86,49 @@ async function loadPortfolioData() {
   });
 
   await Promise.all([...mediaPromises, ...previewPromises]);
+
+  // If GitHub repo info is available, try to fetch latest index.json timestamp
+  // from GitHub raw to detect updates and force refresh if needed
+  if (cfg.githubOwner && cfg.githubRepo) {
+    try {
+      const rawBase = 'https://cdn.jsdelivr.net/gh/' + cfg.githubOwner + '/' + cfg.githubRepo + '@main/';
+      const checkUrl = rawBase + 'index.html' + cacheBust;
+      const checkRes = await fetch(checkUrl, { method: 'HEAD' });
+      if (checkRes.ok) {
+        const lastMod = checkRes.headers.get('last-modified') || checkRes.headers.get('x-last-modified') || '';
+        const etag = checkRes.headers.get('etag') || '';
+        // If remote has different content, fetch data from GitHub raw as override
+        const storedEtag = localStorage.getItem('__portfolio_etag') || '';
+        if (etag && etag !== storedEtag) {
+          console.log('[portfolio] Detected update from GitHub, refreshing data...');
+          localStorage.setItem('__portfolio_etag', etag);
+          // Fetch latest lightweight data from GitHub raw
+          const freshBust = '?_t=' + Date.now();
+          const freshMediaPromises = (embedded.mediaIds || []).map(async (pid) => {
+            try {
+              const res = await fetch(rawBase + 'assets/media-' + pid + '.json' + freshBust);
+              if (res.ok) {
+                const text = await res.text();
+                mediaData['project-edit-' + pid] = text;
+              }
+            } catch (e) { console.warn('[portfolio] GitHub raw media fetch failed for', pid, e); }
+          });
+          const freshPreviewPromises = (embedded.previewIds || []).map(async (pid) => {
+            try {
+              const res = await fetch(rawBase + 'assets/preview-' + pid + '.txt' + freshBust);
+              if (res.ok) {
+                previewData[pid] = await res.text();
+              }
+            } catch (e) { console.warn('[portfolio] GitHub raw preview fetch failed for', pid, e); }
+          });
+          await Promise.all([...freshMediaPromises, ...freshPreviewPromises]);
+        }
+      }
+    } catch (e) {
+      // Silently ignore — fallback to local assets data
+      console.warn('[portfolio] GitHub live refresh check failed (using cached data):', e);
+    }
+  }
 
   return {
     content: embedded.content,
